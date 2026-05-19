@@ -79,9 +79,9 @@ class PINN_Solver:
         return self.model(points)
 
     def _calculateFullLoss(self):
-        # detach нужен для 
         bp = self.bp
-        # bp = self.bp.detach()
+        # detach для сборса вычисленных производных
+        # так как каждое вычисление производных прибавляет результат
         cp = self.cp.detach().requires_grad_(True)
 
         boundary_pred = self.model(bp)
