@@ -5,6 +5,8 @@ from torch import nn, optim
 class PINN_Solver:
     def __init__(
         self,
+        initialPoints: torch.Tensor,
+        initialValues: torch.Tensor,
         boundaryPoints: torch.Tensor,
         boundaryValues: torch.Tensor,
         collocationPoints: torch.Tensor,
@@ -15,6 +17,8 @@ class PINN_Solver:
         optimizer: optim.Optimizer,
     ):
 
+        self.ip = initialPoints.detach().clone()
+        self.iv = initialValues.detach().clone().requires_grad_(False)
         self.bp = boundaryPoints.detach().clone()
         self.bv = boundaryValues.detach().clone().requires_grad_(False)
         self.cp = collocationPoints.detach().clone()
@@ -78,14 +82,17 @@ class PINN_Solver:
     def getSolution(self, points: torch.Tensor):
         return self.model(points)
 
-    def _calculateFullLoss(self):
-        bp = self.bp
-        # detach для сборса вычисленных производных
-        # так как каждое вычисление производных прибавляет результат
+    def _calculateDataLoss(self, points, values):
+        if len(points) == 0:
+            return torch.zeros((), dtype=torch.float64)
+        pred = self.model(points)
+        return self.loss(pred, values)
+
+    def _calculateLossComponents(self):
         cp = self.cp.detach().requires_grad_(True)
 
-        boundary_pred = self.model(bp)
-        boundary_loss = self.loss(boundary_pred, self.bv)
+        init_loss = self._calculateDataLoss(self.ip, self.iv)
+        boundary_loss = self._calculateDataLoss(self.bp, self.bv)
 
         collocation_pred = self.model(cp)
         collocation_residual = self.pde(cp, collocation_pred)
@@ -93,7 +100,11 @@ class PINN_Solver:
         # self.cv - нулевой тензор
         collocation_loss = self.loss(collocation_residual, self.cv)
 
-        return boundary_loss + collocation_loss
+        return init_loss, boundary_loss, collocation_loss
+
+    def _calculateFullLoss(self):
+        init_loss, boundary_loss, collocation_loss = self._calculateLossComponents()
+        return 2 * init_loss + boundary_loss + collocation_loss
 
     @staticmethod
     def createMultyLayerinitializer(initializer):

@@ -142,6 +142,39 @@ def plot_error_iteration(
     ax.grid(True)
 
 
+def get_method_values(
+    T, X, nfd_solution, models, moment, quasi_T, quasi_X, quasi_solution
+):
+    time, x_line_np, nfd_at_time, pinn_solutions, quasi_on_x = get_iteration_values(
+        T, X, nfd_solution, models, moment, quasi_T, quasi_X, quasi_solution
+    )
+    return {
+        "NFD": (x_line_np, nfd_at_time, quasi_on_x, time),
+        **{
+            name: (x_line_np, solution, quasi_on_x, time)
+            for name, solution in pinn_solutions.items()
+        },
+    }
+
+
+def plot_method_vs_quasi_iteration(
+    ax,
+    method_name,
+    x_line_np,
+    method_at_time,
+    quasi_on_x,
+    time,
+):
+    ax.plot(x_line_np, method_at_time, label=method_name)
+    ax.plot(x_line_np, quasi_on_x, ":", label="Quasi")
+    ax.set_title(f"t = {time:g}")
+    ax.grid(True)
+
+
+def safe_plot_name(name):
+    return name.lower().replace(" ", "_")
+
+
 def plot_training_points(ax, T, X, model_group, title):
     t_min = T.min()
     t_max = T.max()
@@ -151,13 +184,22 @@ def plot_training_points(ax, T, X, model_group, title):
     rectangle_x = [x_min, x_min, x_max, x_max, x_min]
 
     ax.plot(rectangle_t, rectangle_x, color="black", linewidth=1)
+    if "training_collocation_points" in model_group:
+        collocation_points = model_group["training_collocation_points"][()]
+        ax.plot(
+            collocation_points[:, 0],
+            collocation_points[:, 1],
+            "x",
+            markersize=3,
+            label="collocation",
+        )
     if "training_initial_points" in model_group:
         initial_points = model_group["training_initial_points"][()]
         ax.plot(
             initial_points[:, 0],
             initial_points[:, 1],
             "x",
-            markersize=4,
+            markersize=5,
             label="initial",
         )
     if "training_boundary_points" in model_group:
@@ -166,7 +208,7 @@ def plot_training_points(ax, T, X, model_group, title):
             boundary_points[:, 0],
             boundary_points[:, 1],
             "x",
-            markersize=4,
+            markersize=5,
             label="boundary",
         )
 
@@ -250,6 +292,17 @@ def visualize_hdf5(args):
             sharey=True,
             squeeze=False,
         )
+        method_names = ("NFD", "PINN", "PINN Alternative")
+        method_figures = {}
+        for method_name in method_names:
+            method_figures[method_name] = plt.subplots(
+                len(iterations),
+                len(moments),
+                figsize=(4 * len(moments), 3 * len(iterations)),
+                sharex=False,
+                sharey=True,
+                squeeze=False,
+            )
 
         for row, iteration in enumerate(iterations):
             iteration_group = h5["iterations"][iteration]
@@ -296,14 +349,36 @@ def visualize_hdf5(args):
                     quasi_X,
                     quasi_solution,
                 )
+                method_values = get_method_values(
+                    T,
+                    X,
+                    nfd_solution,
+                    models,
+                    moment,
+                    quasi_T,
+                    quasi_X,
+                    quasi_solution,
+                )
+                for method_name, (_, method_axes) in method_figures.items():
+                    plot_method_vs_quasi_iteration(
+                        method_axes[row][col],
+                        method_name,
+                        *method_values[method_name],
+                    )
                 if col == 0:
                     ax.set_ylabel(f"Nx = {int(iteration_group.attrs['Nx'])}\nu(t, x)")
                     error_axes[row][col].set_ylabel(
                         f"Nx = {int(iteration_group.attrs['Nx'])}\nabsolute error"
                     )
+                    for method_name, (_, method_axes) in method_figures.items():
+                        method_axes[row][col].set_ylabel(
+                            f"Nx = {int(iteration_group.attrs['Nx'])}\nu(t, x)"
+                        )
                 if row == len(iterations) - 1:
                     ax.set_xlabel("x")
                     error_axes[row][col].set_xlabel("x")
+                    for _, method_axes in method_figures.values():
+                        method_axes[row][col].set_xlabel("x")
 
         handles, labels = axes[0][0].get_legend_handles_labels()
         fig.legend(handles, labels, loc="upper right")
@@ -311,6 +386,11 @@ def visualize_hdf5(args):
         error_handles, error_labels = error_axes[0][0].get_legend_handles_labels()
         error_fig.legend(error_handles, error_labels, loc="upper right")
         error_fig.tight_layout()
+        for method_name, (method_fig, method_axes) in method_figures.items():
+            method_handles, method_labels = method_axes[0][0].get_legend_handles_labels()
+            method_fig.legend(method_handles, method_labels, loc="upper right")
+            method_fig.suptitle(f"{method_name} vs Quasi")
+            method_fig.tight_layout()
         if args.save_plot is not None:
             args.save_plot.parent.mkdir(parents=True, exist_ok=True)
             fig.savefig(args.save_plot, dpi=200)
@@ -320,10 +400,22 @@ def visualize_hdf5(args):
             )
             error_fig.savefig(error_plot, dpi=200)
             print(f"Error plot saved to {error_plot}")
+            for method_name, (method_fig, _) in method_figures.items():
+                method_plot = args.save_plot.with_name(
+                    f"{args.save_plot.stem}_{safe_plot_name(method_name)}_vs_quasi"
+                    f"{args.save_plot.suffix}"
+                )
+                method_fig.savefig(method_plot, dpi=200)
+                print(f"{method_name} vs Quasi plot saved to {method_plot}")
         if not args.no_plot:
             plt.show()
-        elif training_points_fig is not None:
-            plt.close(training_points_fig)
+        else:
+            plt.close(fig)
+            plt.close(error_fig)
+            for method_fig, _ in method_figures.values():
+                plt.close(method_fig)
+            if training_points_fig is not None:
+                plt.close(training_points_fig)
 
 
 def parseArgs(argv=None):

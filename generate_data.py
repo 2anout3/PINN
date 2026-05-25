@@ -62,7 +62,7 @@ def createCollocationDataFromArrays(
 ) -> torch.Tensor:
     availableCollocationCount = (len(T) - 1) * (len(X) - 2)
     size = min(size, availableCollocationCount)
-    idx = torch.randint(availableCollocationCount, (size,)).numpy()
+    idx = torch.randperm(availableCollocationCount)[:size].numpy()
     x_count = len(X) - 2
     t_idx = idx // x_count + 1
     x_idx = idx % x_count + 1
@@ -75,10 +75,6 @@ def createCollocationDataFromArrays(
 
 
 # другой вариант выбора точек (выбор случайных точек в области)
-# прямоугольник (с временными и пространственными сторонами) делится на size
-# равных прямоугольников по каждой из осей (всего будет size * size) среди этих
-# прямоугольников выбирается size прямоугольников таким образом, чтобы в каждой
-# строке и в каждом столбце был только один прямоугольник
 def createLhsCollocationData(lb: np.ndarray, ub: np.ndarray, size: int) -> torch.Tensor:
     dim = len(lb)  # dim = 2
     samples = torch.empty(size, dim, dtype=torch.float64)
@@ -162,7 +158,7 @@ def getRandomInitialAndBoundary(
     boundaryValues: np.ndarray,
     initial_count: int | None,
     boundary_count: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     initial_mask = boundaryPoints[:, 0] == 0
     initial_points = boundaryPoints[initial_mask]
     initial_values = boundaryValues[initial_mask]
@@ -177,9 +173,11 @@ def getRandomInitialAndBoundary(
     initial_idxs = torch.randperm(len(initial_points))[:initial_count]
     boundary_idxs = torch.randperm(len(side_points))[:boundary_count]
 
-    bp = np.vstack((initial_points[initial_idxs], side_points[boundary_idxs]))
-    bv = np.vstack((initial_values[initial_idxs], side_values[boundary_idxs]))
-    return torch.from_numpy(bp), torch.from_numpy(bv)
+    ip = initial_points[initial_idxs]
+    iv = initial_values[initial_idxs]
+    bp = side_points[boundary_idxs]
+    bv = side_values[boundary_idxs]
+    return torch.from_numpy(ip), torch.from_numpy(iv), torch.from_numpy(bp), torch.from_numpy(bv)
 
 
 def createInitialCollocationData(
@@ -209,7 +207,7 @@ def createPinnSolver(
     if collocation_count is not None:
         collocationCount = min(collocation_count, availableCollocationCount)
     print(f"collocationCount = {collocationCount}")
-    bp, bv = getRandomInitialAndBoundary(
+    ip, iv, bp, bv = getRandomInitialAndBoundary(
         boundaryPoints,
         boundaryValues,
         initial_count,
@@ -223,6 +221,8 @@ def createPinnSolver(
 
     optimizer = optim.Adam(model.parameters())
     return PINN_Solver(
+        initialPoints=ip,
+        initialValues=iv,
         boundaryPoints=bp,
         boundaryValues=bv,
         collocationPoints=cp,
@@ -249,7 +249,7 @@ def createAlternativePinnSolver(
     lb = np.array([T.min(), X.min()], dtype=np.float64)
     ub = np.array([T.max(), X.max()], dtype=np.float64)
 
-    bp, bv = getRandomInitialAndBoundary(
+    ip, iv, bp, bv = getRandomInitialAndBoundary(
         boundaryPoints,
         boundaryValues,
         initial_count,
@@ -267,6 +267,8 @@ def createAlternativePinnSolver(
     initializer = nn.init.xavier_uniform_
     optimizer = optim.Adam(model.parameters())
     return PINN_Solver(
+        initialPoints=ip,
+        initialValues=iv,
         boundaryPoints=bp,
         boundaryValues=bv,
         collocationPoints=cp,
@@ -290,12 +292,15 @@ def write_model(
 ):
     group.attrs["layers_num"] = layers_num
     group.attrs["layers_width"] = layers_width
-    group.attrs["output_size"] = solver.bv.shape[-1]
+    group.attrs["output_size"] = solver.iv.shape[-1]
 
-    boundary_points = solver.bp.detach().cpu().numpy()
-    initial_mask = boundary_points[:, 0] == 0
-    write_dataset(group, "training_initial_points", boundary_points[initial_mask])
-    write_dataset(group, "training_boundary_points", boundary_points[~initial_mask])
+    write_dataset(group, "training_initial_points", solver.ip.detach().cpu().numpy())
+    write_dataset(group, "training_boundary_points", solver.bp.detach().cpu().numpy())
+    write_dataset(
+        group,
+        "training_collocation_points",
+        solver.cp.detach().cpu().numpy(),
+    )
 
     state_group = group.create_group("state_dict")
     keys = []
