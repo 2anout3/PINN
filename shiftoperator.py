@@ -12,7 +12,7 @@ class shift_op:
         elif isinstance(obj, (float, int, np.float64, np.integer)):
             self._poly = polynomial.Polynomial([obj])
         else:
-            raise TypeError(f"Unsupported type for alpha: {type(obj)}")
+            raise TypeError(f"Unsupported type for obj: {type(obj)}")
 
     def __add__(self, other: shift_op):
         min_power = np.min([self._min_power, other._min_power])
@@ -42,7 +42,7 @@ class shift_op:
 
     def __rmul__(self, alpha: np.float64):
         if (not isinstance(alpha, (int, float, np.float64))):
-            raise TypeError(f"Unsupported type for alpha: {type(obj)}")
+            raise TypeError(f"Unsupported type for alpha: {type(alpha)}")
         poly = alpha * self._poly
         min_power = self._min_power
         if (alpha == 0):

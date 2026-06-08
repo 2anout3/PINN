@@ -74,20 +74,6 @@ def createCollocationDataFromArrays(
     return res
 
 
-# другой вариант выбора точек (выбор случайных точек в области)
-def createLhsCollocationData(lb: np.ndarray, ub: np.ndarray, size: int) -> torch.Tensor:
-    dim = len(lb)  # dim = 2
-    samples = torch.empty(size, dim, dtype=torch.float64)
-    for axis in range(dim):
-        perm = torch.randperm(size, dtype=torch.float64)
-        samples[:, axis] = perm + torch.rand(size, dtype=torch.float64)
-    samples /= size
-
-    lb_t = torch.from_numpy(lb).double()
-    ub_t = torch.from_numpy(ub).double()
-    return lb_t + (ub_t - lb_t) * samples
-
-
 def pde(p, u):
     dudp = torch.autograd.grad(u, p, torch.ones_like(u), create_graph=True)[0]
 
@@ -234,52 +220,6 @@ def createPinnSolver(
     )
 
 
-def createAlternativePinnSolver(
-    T: np.ndarray,
-    X: np.ndarray,
-    boundaryPoints: np.ndarray,
-    boundaryValues: np.ndarray,
-    layers_num: int,
-    layers_width: int,
-    initial_count: int | None,
-    boundary_count: int,
-    collocation_count: int,
-    initial_collocation_points: torch.Tensor,
-) -> PINN_Solver:
-    lb = np.array([T.min(), X.min()], dtype=np.float64)
-    ub = np.array([T.max(), X.max()], dtype=np.float64)
-
-    ip, iv, bp, bv = getRandomInitialAndBoundary(
-        boundaryPoints,
-        boundaryValues,
-        initial_count,
-        boundary_count,
-    )
-    lhs_points = createLhsCollocationData(lb, ub, collocation_count)
-    cp = torch.vstack((lhs_points, initial_collocation_points))
-
-    print(f"alternativeCollocationCount = {len(cp)}")
-    model = createModel(
-        bv.shape[-1],
-        layers_num,
-        layers_width,
-    )
-    initializer = nn.init.xavier_uniform_
-    optimizer = optim.Adam(model.parameters())
-    return PINN_Solver(
-        initialPoints=ip,
-        initialValues=iv,
-        boundaryPoints=bp,
-        boundaryValues=bv,
-        collocationPoints=cp,
-        pdeFn=pde,
-        lossFn=nn.MSELoss(reduction="mean"),
-        model=model,
-        initializer=initializer,
-        optimizer=optimizer,
-    )
-
-
 def write_dataset(group: h5py.Group, name: str, data):
     if name in group:
         del group[name]
@@ -381,32 +321,6 @@ def generate_hdf5(args):
             if args.lbfgs_iters > 0:
                 solver.trainLBFGS(args.lbfgs_iters)
 
-            alternative_collocation_count = args.alternative_collocation_count
-            if alternative_collocation_count is None:
-                alternative_collocation_count = args.collocation_count
-            if alternative_collocation_count is None:
-                alternative_collocation_count = (len(T) - 1) * (len(X) - 2)
-
-            alternative_solver = createAlternativePinnSolver(
-                T,
-                X,
-                boundaryPoints,
-                boundaryValues,
-                args.model_layers_num,
-                args.model_layers_width,
-                args.initial_count,
-                args.boundary_count,
-                alternative_collocation_count,
-                initial_collocation_points,
-            )
-            if args.alternative_adam_epochs > 0:
-                alternative_solver.trainModel(args.alternative_adam_epochs)
-            alternative_lbfgs_iters = args.alternative_lbfgs_iters
-            if alternative_lbfgs_iters is None:
-                alternative_lbfgs_iters = args.lbfgs_iters
-            if alternative_lbfgs_iters > 0:
-                alternative_solver.trainLBFGS(alternative_lbfgs_iters)
-
             inCond = boundaryValues[: nx + 1]
             nfd_solver = createNFDSolver(nx, timeEnd, h, dt, x_start, x_end)
             nfd_solution = nfd_solver.getSolution(inCond)
@@ -419,13 +333,6 @@ def generate_hdf5(args):
             model_group = iteration_group.create_group("model")
             write_model(
                 model_group, solver, args.model_layers_num, args.model_layers_width
-            )
-            alternative_model_group = iteration_group.create_group("alternative_model")
-            write_model(
-                alternative_model_group,
-                alternative_solver,
-                args.model_layers_num,
-                args.model_layers_width,
             )
 
     print(f"Data saved to {args.data_output}")
@@ -471,14 +378,16 @@ def parseArgs(argv=None):
         "--alternative-collocation-count",
         type=int,
         default=None,
-        help="LHS collocation count for the alternative PINN.",
+        help=argparse.SUPPRESS,
     )
-    parser.add_argument("--alternative-adam-epochs", type=int, default=0)
+    parser.add_argument(
+        "--alternative-adam-epochs", type=int, default=0, help=argparse.SUPPRESS
+    )
     parser.add_argument(
         "--alternative-lbfgs-iters",
         type=int,
         default=None,
-        help="LBFGS iterations for the alternative PINN. Defaults to --lbfgs-iters.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args(argv)

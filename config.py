@@ -1,10 +1,10 @@
 import numpy as np
 import h5py
 
-from problem_data import problem_data
+from problem_data import ProblemData
 
 class config:
-    def __init__(self, data: problem_data, path = None, ds_solution_name: str = "solution_def", ds_error_name: str = "erorr_def", read: bool = True, max_iters = 1000, max_layers = 1000):
+    def __init__(self, data: ProblemData, path = None, ds_solution_name: str = "solution_def", ds_error_name: str = "erorr_def", read: bool = True, max_iters = 1000, max_layers = 1000):
         self.data = data
         self.path = path
         self.use_file_to_store = not path is None

@@ -113,7 +113,7 @@ def plot_iteration(
     )
 
     ax.plot(x_line_np, nfd_at_time, label="NFD")
-    styles = {"PINN": "--", "PINN Alternative": "-."}
+    styles = {"PINN": "--"}
     for name, solution in pinn_solutions.items():
         ax.plot(x_line_np, solution, styles.get(name, "--"), label=name)
     quasi_time_idx = nearest_time_index(quasi_T, time)
@@ -130,7 +130,7 @@ def plot_error_iteration(
     )
 
     ax.plot(x_line_np, np.abs(nfd_at_time - quasi_on_x), label="|NFD - Quasi|")
-    styles = {"PINN": "--", "PINN Alternative": "-."}
+    styles = {"PINN": "--"}
     for name, solution in pinn_solutions.items():
         ax.plot(
             x_line_np,
@@ -221,7 +221,7 @@ def plot_training_points(ax, T, X, model_group, title):
 
 
 def plot_training_points_hdf5(h5, iterations, args):
-    model_names = (("model", "PINN"), ("alternative_model", "PINN Alternative"))
+    model_names = (("model", "PINN"),)
     fig, axes = plt.subplots(
         len(iterations),
         len(model_names),
@@ -292,7 +292,7 @@ def visualize_hdf5(args):
             sharey=True,
             squeeze=False,
         )
-        method_names = ("NFD", "PINN", "PINN Alternative")
+        method_names = ("NFD", "PINN")
         method_figures = {}
         for method_name in method_names:
             method_figures[method_name] = plt.subplots(
@@ -311,7 +311,6 @@ def visualize_hdf5(args):
             nfd_solution = iteration_group["nfd"]["solution"][()]
             models = {
                 "PINN": load_model(iteration_group["model"]),
-                "PINN Alternative": load_model(iteration_group["alternative_model"]),
             }
             print_relative_l2_errors(
                 iteration,
